@@ -26,6 +26,7 @@ REGIONS_SHEET = "Регионы"
 BOOK_SHEET = "Справочник"
 
 MAX_ROWS = 1000  # запас строк, на которые рассчитаны формулы
+ROW_HEIGHT = 30  # иначе длинное описание растягивает строку на пол-экрана
 
 LINK_COLUMNS = [
     ("№", 6),
@@ -82,6 +83,7 @@ def _fill_links(sheet, posts: list[Post], region_book: RegionBook) -> None:
         sheet.cell(row=row, column=7, value=post.views)
         sheet.cell(row=row, column=8, value=post.likes)
         sheet.cell(row=row, column=9, value=post.comments)
+        sheet.row_dimensions[row].height = ROW_HEIGHT
 
     # выпадающий список регионов для колонки «Регион» (на весь запас строк)
     formula = f"='{BOOK_SHEET}'!$A$2:$A${len(region_book.names) + 1}"

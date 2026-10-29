@@ -29,7 +29,44 @@ def base_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+def windows_desktop() -> Path | None:
+    """Настоящий Рабочий стол Windows: при включённом OneDrive он лежит внутри него."""
+    try:
+        import ctypes
+        from ctypes import windll, wintypes
+
+        class GUID(ctypes.Structure):
+            _fields_ = [
+                ("Data1", wintypes.DWORD),
+                ("Data2", wintypes.WORD),
+                ("Data3", wintypes.WORD),
+                ("Data4", ctypes.c_byte * 8),
+            ]
+
+        desktop_id = GUID(
+            0xB4BFCC3A, 0xDB2C, 0x424C,
+            (ctypes.c_byte * 8)(0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41),
+        )
+        buffer = ctypes.c_wchar_p()
+        if windll.shell32.SHGetKnownFolderPath(
+            ctypes.byref(desktop_id), 0, None, ctypes.byref(buffer)
+        ) != 0:
+            return None
+        path = Path(buffer.value)
+        windll.ole32.CoTaskMemFree(buffer)
+        return path if path.is_dir() else None
+    except Exception:
+        return None
+
+
 def desktop() -> Path:
+    if sys.platform.startswith("win"):
+        found = windows_desktop()
+        if found:
+            return found
+        one_drive = Path.home() / "OneDrive" / "Desktop"
+        if one_drive.is_dir():
+            return one_drive
     for name in ("Desktop", "Рабочий стол"):
         path = Path.home() / name
         if path.is_dir():
