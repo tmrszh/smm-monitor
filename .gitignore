@@ -1,0 +1,9 @@
+.venv/
+out/
+*.session
+__pycache__/
+# config/sources.json — источники АФМ держим в репозитории
+dist/
+build/
+*.spec
+.DS_Store

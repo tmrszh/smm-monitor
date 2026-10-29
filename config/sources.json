@@ -1,0 +1,7 @@
+{
+  "sources": [
+    {"platform": "telegram",  "url": "https://t.me/afm_rk", "title": "АФМ РК — Telegram"},
+    {"platform": "instagram", "url": "https://www.instagram.com/afm_rk/", "title": "АФМ РК — Instagram"}
+  ],
+  "limit_per_source": 100
+}

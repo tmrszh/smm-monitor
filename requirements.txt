@@ -1,0 +1,7 @@
+requests==2.32.3
+beautifulsoup4==4.12.3
+openpyxl==3.1.5
+# опционально: полные метрики Telegram (реакции + комментарии)
+telethon==1.37.0
+# опционально: метрики Instagram
+instaloader==4.14.1

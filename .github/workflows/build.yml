@@ -1,0 +1,51 @@
+name: Сборка приложения «Отчёт АФМ»
+
+# Собирает .exe для Windows и запускаемый файл для macOS.
+# Запуск вручную: вкладка Actions -> этот workflow -> Run workflow.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: Отчёт-АФМ-windows
+            sep: ";"
+          - os: macos-latest
+            artifact: Отчёт-АФМ-macos
+            sep: ":"
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Поставить зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 openpyxl instaloader pyinstaller
+
+      - name: Собрать приложение
+        run: >
+          pyinstaller --noconfirm --onefile --console
+          --name "Отчёт АФМ"
+          --add-data "config${{ matrix.sep }}config"
+          --collect-submodules instaloader
+          --hidden-import bs4
+          app.py
+
+      - name: Положить инструкцию рядом с приложением
+        shell: bash
+        run: cp "Инструкция.txt" dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*

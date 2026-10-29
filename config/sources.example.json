@@ -1,0 +1,7 @@
+{
+  "sources": [
+    {"platform": "telegram",  "url": "https://t.me/<канал_агентства>", "title": "ТГК агентства"},
+    {"platform": "instagram", "url": "https://www.instagram.com/<аккаунт_агентства>/", "title": "Instagram агентства"}
+  ],
+  "limit_per_source": 100
+}
