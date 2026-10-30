@@ -129,3 +129,14 @@ export INSTAGRAM_LOGIN=<ваш_логин>
 лежит [.github/workflows/smm-monitor-exe.yml](../.github/workflows/smm-monitor-exe.yml):
 вкладка Actions на GitHub → «Сборка приложения «Отчёт АФМ»» → Run workflow → готовые
 файлы под Windows и macOS скачиваются из artifacts.
+
+## Корпоративная сеть
+
+В сети с проверкой трафика (шлюз подменяет сертификаты сайтов) Python по
+умолчанию обрывает соединение: `certificate verify failed`. Поэтому сертификаты
+проверяются по хранилищу операционной системы — `truststore` подключается в
+[net.py](smm_monitor/net.py) при каждом запуске.
+
+Если корневого сертификата организации нет и в системном хранилище, его можно
+положить рядом с программой файлом `сертификат.pem` (или `certificate.pem`) —
+приложение само пропишет его в `REQUESTS_CA_BUNDLE`.

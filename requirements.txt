@@ -1,6 +1,7 @@
 requests==2.32.3
 beautifulsoup4==4.12.3
 openpyxl==3.1.5
+truststore==0.10.1
 # опционально: полные метрики Telegram (реакции + комментарии)
 telethon==1.37.0
 # опционально: метрики Instagram

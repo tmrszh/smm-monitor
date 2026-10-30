@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from .collectors import collect
+from .net import use_system_certificates
 from .excel_report import build_workbook
 from .refill import refill_workbook
 from .models import Post
@@ -45,6 +46,7 @@ def _sources_from_args(args) -> list[dict]:
 
 
 def cmd_collect(args) -> None:
+    use_system_certificates()
     region_book = RegionBook.load(args.regions)
     posts: list[Post] = []
     for source in _sources_from_args(args):
@@ -85,6 +87,7 @@ def cmd_from_json(args) -> None:
 
 
 def cmd_refill(args) -> None:
+    use_system_certificates()
     region_book = RegionBook.load(args.regions)
     result = refill_workbook(
         args.path,

@@ -30,7 +30,7 @@ jobs:
       - name: Поставить зависимости
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 openpyxl instaloader pyinstaller
+          pip install requests beautifulsoup4 openpyxl instaloader truststore pyinstaller
 
       - name: Собрать приложение
         run: >
@@ -39,6 +39,7 @@ jobs:
           --add-data "config${{ matrix.sep }}config"
           --collect-submodules instaloader
           --hidden-import bs4
+          --hidden-import truststore
           app.py
 
       - name: Положить инструкцию рядом с приложением

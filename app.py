@@ -15,6 +15,7 @@ from datetime import date
 from pathlib import Path
 
 from smm_monitor.collectors import collect
+from smm_monitor.net import CERTIFICATE_HELP, is_certificate_error, use_system_certificates
 from smm_monitor.excel_report import build_workbook
 from smm_monitor.refill import refill_workbook
 from smm_monitor.regions import RegionBook
@@ -57,6 +58,26 @@ def windows_desktop() -> Path | None:
         return path if path.is_dir() else None
     except Exception:
         return None
+
+
+def app_folder() -> Path:
+    """Папка, где лежит сам файл программы (туда же можно положить сертификат)."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def use_local_certificate() -> Path | None:
+    """Если рядом с программой лежит файл сертификата организации — взять его."""
+    import os
+
+    for name in ("сертификат.pem", "certificate.pem", "сертификат.crt", "certificate.crt"):
+        path = app_folder() / name
+        if path.is_file():
+            os.environ["REQUESTS_CA_BUNDLE"] = str(path)
+            os.environ["SSL_CERT_FILE"] = str(path)
+            return path
+    return None
 
 
 def desktop() -> Path:
@@ -134,6 +155,8 @@ def run_refill(region_book: RegionBook) -> None:
     print("Иду по ссылкам, это может занять несколько минут. Окно не закрывайте.")
     print()
     result = refill_workbook(path, region_book, progress=lambda link: print(f"  {link}", flush=True))
+    if any(is_certificate_error(Exception(problem)) for problem in result.failed):
+        print(CERTIFICATE_HELP)
     print()
     print(f"Заполнено строк: {result.filled}")
     if result.skipped:
@@ -159,7 +182,10 @@ def run_collect(sources: list, region_book: RegionBook) -> None:
         try:
             found = collect(source, limit, region_book)
         except Exception as error:
-            print(f"    не удалось собрать: {error}")
+            if is_certificate_error(error):
+                print(f"    {CERTIFICATE_HELP}")
+            else:
+                print(f"    не удалось собрать: {error}")
             continue
         print(f"    публикаций: {len(found)}")
         posts.extend(found)
@@ -183,6 +209,12 @@ def main() -> None:
     print("  Отчёт по соцсетям АФМ")
     print("=" * 58)
     print()
+
+    use_system_certificates()
+    certificate = use_local_certificate()
+    if certificate:
+        print(f"Использую сертификат организации: {certificate.name}")
+        print()
 
     config = json.loads((base_dir() / "config" / "sources.json").read_text(encoding="utf-8"))
     region_book = RegionBook.load(base_dir() / "config" / "regions.json")
