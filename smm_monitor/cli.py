@@ -23,6 +23,7 @@ from .models import Post
 from .regions import RegionBook
 
 DEFAULT_OUT = Path("out")
+DEFAULT_SOURCES = Path(__file__).resolve().parent.parent / "config" / "sources.json"
 
 
 def _platform_of(url: str) -> str:
@@ -90,13 +91,20 @@ def cmd_from_json(args) -> None:
 def cmd_refill(args) -> None:
     use_system_certificates()
     region_book = RegionBook.load(args.regions)
+    pages: list[str] = []
+    config = Path(args.config) if getattr(args, "config", None) else DEFAULT_SOURCES
+    if config.is_file():
+        pages = json.loads(config.read_text(encoding="utf-8")).get("own_pages") or []
     result = refill_workbook(
         args.path,
         region_book,
         refresh=args.refresh,
         progress=lambda link: print(f"  {link}", file=sys.stderr),
+        own_pages=pages,
     )
     print(f"Заполнено строк: {result.filled}")
+    if result.foreign:
+        print(f"Из них на чужих ресурсах (без метрик): {result.foreign}")
     if result.updated:
         print(f"Обновлено строк: {result.updated}")
     if result.skipped:

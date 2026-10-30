@@ -20,11 +20,20 @@ COL_NUMBER, COL_PLATFORM, COL_LINK, COL_DATE = 1, 2, 3, 4
 COL_REGION, COL_DESCRIPTION, COL_VIEWS, COL_COMMENTS = 5, 6, 7, 8
 
 
+def is_own_page(url: str, own_pages: list[str] | None) -> bool:
+    """Ссылка ведёт на страницу самого ведомства?"""
+    if not own_pages:
+        return True
+    lowered = url.lower()
+    return any(page.lower().strip("/ ") in lowered for page in own_pages)
+
+
 @dataclass
 class RefillResult:
     filled: int = 0
     updated: int = 0
     skipped: int = 0
+    foreign: int = 0  # ссылки на чужие ресурсы: считаются как публикации, без метрик
     failed: list[str] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -37,6 +46,7 @@ def refill_workbook(
     region_book: RegionBook,
     refresh: bool = False,
     progress=None,
+    own_pages: list[str] | None = None,
 ) -> RefillResult:
     path = Path(path)
     workbook = load_workbook(path)
@@ -80,8 +90,15 @@ def refill_workbook(
         put(COL_DATE, (post.posted_at or "")[:19].replace("T", " ") or None)
         put(COL_DESCRIPTION, post.description or None)
         put(COL_REGION, "; ".join(region_book.detect(post.description)) or None)
-        for column, value in ((COL_VIEWS, post.views), (COL_COMMENTS, post.comments)):
-            put(column, value, overwrite=refresh)
+
+        # В ссылке на пост инстаграма имени аккаунта нет, поэтому смотрим,
+        # чья это публикация, по самому посту.
+        owner = post.source or link
+        if is_own_page(owner, own_pages) or is_own_page(link, own_pages):
+            for column, value in ((COL_VIEWS, post.views), (COL_COMMENTS, post.comments)):
+                put(column, value, overwrite=refresh)
+        else:
+            result.foreign += 1
 
         if has_numbers:
             result.updated += 1

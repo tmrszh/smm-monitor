@@ -214,6 +214,14 @@ def ask_file(suggest: Path | None = None) -> Path | None:
     return path
 
 
+def own_pages() -> list[str]:
+    try:
+        config = json.loads((base_dir() / "config" / "sources.json").read_text(encoding="utf-8"))
+        return config.get("own_pages") or []
+    except Exception:
+        return []
+
+
 def run_refill(region_book: RegionBook, known: Path | None = None) -> None:
     path = ask_file(known or remembered_file() or nearby_workbook())
     if path is None:
@@ -222,11 +230,21 @@ def run_refill(region_book: RegionBook, known: Path | None = None) -> None:
     print()
     print("Иду по ссылкам, это может занять несколько минут. Окно не закрывайте.")
     print()
-    result = refill_workbook(path, region_book, progress=lambda link: print(f"  {link}", flush=True))
+    result = refill_workbook(
+        path,
+        region_book,
+        progress=lambda link: print(f"  {link}", flush=True),
+        own_pages=own_pages(),
+    )
     if any(is_certificate_error(Exception(problem)) for problem in result.failed):
         print(CERTIFICATE_HELP)
     print()
     print(f"Заполнено строк: {result.filled}")
+    if result.foreign:
+        print(
+            f"Из них ссылок на другие ресурсы: {result.foreign} — "
+            "они посчитаны как публикации, без просмотров и комментариев"
+        )
     if result.skipped:
         print(f"Пропущено, цифры уже были: {result.skipped}")
     for problem in result.failed:

@@ -1,7 +1,20 @@
 {
   "sources": [
-    {"platform": "telegram",  "url": "https://t.me/afm_rk", "title": "АФМ РК — Telegram"},
-    {"platform": "instagram", "url": "https://www.instagram.com/afm_rk/", "title": "АФМ РК — Instagram"}
+    {
+      "platform": "telegram",
+      "url": "https://t.me/afm_rk",
+      "title": "АФМ РК — Telegram"
+    },
+    {
+      "platform": "instagram",
+      "url": "https://www.instagram.com/afm_rk/",
+      "title": "АФМ РК — Instagram"
+    }
   ],
-  "limit_per_source": 100
+  "limit_per_source": 100,
+  "own_pages": [
+    "t.me/afm_rk",
+    "instagram.com/afm_rk"
+  ],
+  "_comment": "own_pages — страницы самого АФМ. Просмотры и комментарии считаются только по ним, ссылки на другие ресурсы идут в отчёт как публикации (репосты) без метрик."
 }
