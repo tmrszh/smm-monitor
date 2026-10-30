@@ -17,7 +17,7 @@ from .excel_report import LINKS_SHEET
 from .regions import RegionBook
 
 COL_NUMBER, COL_PLATFORM, COL_LINK, COL_DATE = 1, 2, 3, 4
-COL_REGION, COL_DESCRIPTION, COL_VIEWS, COL_LIKES, COL_COMMENTS = 5, 6, 7, 8, 9
+COL_REGION, COL_DESCRIPTION, COL_VIEWS, COL_COMMENTS = 5, 6, 7, 8
 
 
 @dataclass
@@ -53,7 +53,7 @@ def refill_workbook(
 
         has_numbers = any(
             sheet.cell(row=row, column=column).value is not None
-            for column in (COL_VIEWS, COL_LIKES, COL_COMMENTS)
+            for column in (COL_VIEWS, COL_COMMENTS)
         )
         if has_numbers and not refresh:
             result.skipped += 1
@@ -80,11 +80,7 @@ def refill_workbook(
         put(COL_DATE, (post.posted_at or "")[:19].replace("T", " ") or None)
         put(COL_DESCRIPTION, post.description or None)
         put(COL_REGION, "; ".join(region_book.detect(post.description)) or None)
-        for column, value in (
-            (COL_VIEWS, post.views),
-            (COL_LIKES, post.likes),
-            (COL_COMMENTS, post.comments),
-        ):
+        for column, value in ((COL_VIEWS, post.views), (COL_COMMENTS, post.comments)):
             put(column, value, overwrite=refresh)
 
         if has_numbers:

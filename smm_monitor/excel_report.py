@@ -36,15 +36,13 @@ LINK_COLUMNS = [
     ("Регион", 22),
     ("Описание", 60),
     ("Просмотры", 12),
-    ("Лайки", 10),
     ("Комментарии", 13),
 ]
 COL_PLATFORM = "B"
 COL_LINK = "C"
 COL_REGION = "E"
 COL_VIEWS = "G"
-COL_LIKES = "H"
-COL_COMMENTS = "I"
+COL_COMMENTS = "H"
 
 HEADER_FILL = PatternFill("solid", fgColor="1F3864")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -81,8 +79,7 @@ def _fill_links(sheet, posts: list[Post], region_book: RegionBook) -> None:
         description = sheet.cell(row=row, column=6, value=post.description)
         description.alignment = Alignment(wrap_text=True, vertical="top")
         sheet.cell(row=row, column=7, value=post.views)
-        sheet.cell(row=row, column=8, value=post.likes)
-        sheet.cell(row=row, column=9, value=post.comments)
+        sheet.cell(row=row, column=8, value=post.comments)
         sheet.row_dimensions[row].height = ROW_HEIGHT
 
     # выпадающий список регионов для колонки «Регион» (на весь запас строк)
@@ -101,7 +98,6 @@ def _fill_regions(sheet, region_book: RegionBook) -> None:
         ("Instagram", 11),
         ("Telegram", 11),
         ("Просмотры", 13),
-        ("Лайки", 11),
         ("Комментарии", 13),
     ]
     _style_header(sheet, columns)
@@ -116,8 +112,7 @@ def _fill_regions(sheet, region_book: RegionBook) -> None:
         sheet.cell(row=row, column=3, value=f'=COUNTIFS({platform_rng},"Instagram",{region_rng},{key})')
         sheet.cell(row=row, column=4, value=f'=COUNTIFS({platform_rng},"Telegram",{region_rng},{key})')
         sheet.cell(row=row, column=5, value=f"=SUMIF({region_rng},{key},{_rng(COL_VIEWS)})")
-        sheet.cell(row=row, column=6, value=f"=SUMIF({region_rng},{key},{_rng(COL_LIKES)})")
-        sheet.cell(row=row, column=7, value=f"=SUMIF({region_rng},{key},{_rng(COL_COMMENTS)})")
+        sheet.cell(row=row, column=6, value=f"=SUMIF({region_rng},{key},{_rng(COL_COMMENTS)})")
 
     last = len(region_book.names) + 1
 
@@ -132,7 +127,7 @@ def _fill_regions(sheet, region_book: RegionBook) -> None:
     total = last + 2
     sheet.cell(row=total, column=1, value="Всего ссылок").font = TOTAL_FONT
     sheet.cell(row=total, column=2, value=f"=COUNTA({link_rng})").font = TOTAL_FONT
-    for column, source in ((5, COL_VIEWS), (6, COL_LIKES), (7, COL_COMMENTS)):
+    for column, source in ((5, COL_VIEWS), (6, COL_COMMENTS)):
         sheet.cell(row=total, column=column, value=f"=SUM({_rng(source)})").font = TOTAL_FONT
 
     note = total + 2
@@ -145,7 +140,7 @@ def _fill_regions(sheet, region_book: RegionBook) -> None:
             "Пост с несколькими регионами попадает в каждый из них."
         ),
     ).alignment = Alignment(wrap_text=True, vertical="top")
-    sheet.merge_cells(start_row=note, start_column=1, end_row=note + 2, end_column=7)
+    sheet.merge_cells(start_row=note, start_column=1, end_row=note + 2, end_column=6)
 
 
 def _fill_book(sheet, region_book: RegionBook) -> None:
