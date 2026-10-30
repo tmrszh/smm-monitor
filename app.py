@@ -110,18 +110,24 @@ def nearby_workbook() -> Path | None:
             candidates.extend(sorted(folder.glob("*.xlsx"), key=lambda f: -f.stat().st_mtime))
         except Exception:
             continue
+    standard = {"Ссылки", "Регионы", "Справочник"}
+    best: tuple[int, Path] | None = None
     for candidate in candidates[:20]:
         if candidate.name.startswith("~$"):
             continue
         try:
             workbook = load_workbook(candidate, read_only=True)
-            if "Ссылки" in workbook.sheetnames:
-                workbook.close()
-                return candidate
+            sheets = set(workbook.sheetnames)
             workbook.close()
         except Exception:
             continue
-    return None
+        if "Ссылки" not in sheets:
+            continue
+        # таблица самого человека (есть свой лист) важнее пустой заготовки
+        score = 2 if sheets - standard else 1
+        if best is None or score > best[0]:
+            best = (score, candidate)
+    return best[1] if best else None
 
 
 def desktop() -> Path:
@@ -249,6 +255,14 @@ def run_attach(region_book: RegionBook) -> None:
         return
 
     print()
+    if result.already_prepared:
+        print("Эта таблица уже настроена, ничего менять не нужно.")
+        print(f"Файл: {out}")
+        print()
+        print("Чтобы обновить цифры, вставьте ссылки на лист «Ссылки»,")
+        print("сохраните файл и запустите программу ещё раз — пункт 2.")
+        open_file(out)
+        return
     print(f"Готово: {out}")
     print(f"Лист «{result.sheet}», регионов: {len(result.regions)}")
     print("Считаются сами: " + ", ".join(NAMES[m] for m in result.columns))

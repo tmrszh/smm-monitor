@@ -44,6 +44,7 @@ class AttachResult:
     sheet: str
     first_row: int
     last_row: int
+    already_prepared: bool = False
     columns: dict[str, str] = field(default_factory=dict)  # метрика -> буква колонки
     regions: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)  # метрики, которых нет в таблице
@@ -165,9 +166,26 @@ def attach_counting(
     """Добавить в книгу лист «Ссылки» и формулы автоподсчёта в колонки «кол-во»."""
     path = Path(path)
     workbook = load_workbook(path)
-    sheet = workbook[workbook.sheetnames[0]]
 
-    region_column, first_row, last_row, titles = _find_region_rows(sheet, region_book)
+    # лист со ссылками пропускаем: таблица с регионами — любой другой
+    sheet = None
+    found = None
+    for name in workbook.sheetnames:
+        if name == LINKS_SHEET:
+            continue
+        try:
+            found = _find_region_rows(workbook[name], region_book)
+        except ValueError:
+            continue
+        sheet = workbook[name]
+        break
+    if sheet is None or found is None:
+        raise ValueError(
+            "В таблице не нашлось колонки с названиями регионов. "
+            "Проверьте, что они написаны так же, как в справочнике."
+        )
+
+    region_column, first_row, last_row, titles = found
     metric_columns = _find_metric_columns(sheet)
     if not metric_columns:
         raise ValueError(
@@ -175,12 +193,18 @@ def attach_counting(
             "«Просмотры» или «Комментарии»."
         )
 
+    already_prepared = LINKS_SHEET in workbook.sheetnames
     region_letter = get_column_letter(region_column)
     _add_links_sheet(workbook, region_letter, first_row, last_row, sheet.title)
 
     links = f"'{LINKS_SHEET}'"
     region_range = f"{links}!${COL_REGION}$2:${COL_REGION}${MAX_ROWS + 1}"
-    result = AttachResult(sheet=sheet.title, first_row=first_row, last_row=last_row)
+    result = AttachResult(
+        sheet=sheet.title,
+        already_prepared=already_prepared,
+        first_row=first_row,
+        last_row=last_row,
+    )
 
     for row in range(first_row, last_row + 1):
         key = f'"*"&${region_letter}{row}&"*"'
@@ -209,7 +233,10 @@ def attach_counting(
     result.missing = [m for m in ("links", "views", "comments") if m not in metric_columns]
 
     if out_path is None:
-        out_path = path.with_name(f"{path.stem} (автоподсчёт){path.suffix}")
+        # повторная настройка уже готовой таблицы не плодит копии
+        out_path = path if already_prepared else path.with_name(
+            f"{path.stem} (автоподсчёт){path.suffix}"
+        )
     out_path = Path(out_path)
     workbook.save(out_path)
     return out_path, result
