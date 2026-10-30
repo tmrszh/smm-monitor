@@ -17,6 +17,7 @@ from pathlib import Path
 from .collectors import collect
 from .net import use_system_certificates
 from .excel_report import build_workbook
+from .attach import attach_counting
 from .refill import refill_workbook
 from .models import Post
 from .regions import RegionBook
@@ -105,6 +106,16 @@ def cmd_refill(args) -> None:
     print(f"Файл: {Path(args.path).resolve()}")
 
 
+def cmd_attach(args) -> None:
+    region_book = RegionBook.load(args.regions)
+    out, result = attach_counting(args.path, region_book, args.out)
+    print(f"Лист «{result.sheet}», строки {result.first_row}-{result.last_row}")
+    print(f"Колонки автоподсчёта: {result.columns}")
+    if result.missing:
+        print(f"Не нашлось метрик: {result.missing}")
+    print(f"Файл: {out.resolve()}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="smm-monitor", description=__doc__)
     parser.add_argument("--regions", help="путь к справочнику регионов (по умолчанию config/regions.json)")
@@ -143,6 +154,13 @@ def main(argv: list[str] | None = None) -> None:
     )
     add_common(refill_parser)
     refill_parser.set_defaults(func=cmd_refill)
+
+    attach_parser = sub.add_parser(
+        "attach", help="встроить автоподсчёт в готовую таблицу заказчика"
+    )
+    attach_parser.add_argument("path", help="путь к .xlsx с таблицей регионов")
+    add_common(attach_parser)
+    attach_parser.set_defaults(func=cmd_attach)
 
     json_parser = sub.add_parser("from-json", help="пересобрать Excel из ранее собранного JSON")
     json_parser.add_argument("path")

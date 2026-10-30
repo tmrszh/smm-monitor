@@ -17,6 +17,7 @@ from pathlib import Path
 from smm_monitor.collectors import collect
 from smm_monitor.net import CERTIFICATE_HELP, is_certificate_error, use_system_certificates
 from smm_monitor.excel_report import build_workbook
+from smm_monitor.attach import attach_counting
 from smm_monitor.refill import refill_workbook
 from smm_monitor.regions import RegionBook
 
@@ -126,12 +127,13 @@ def ask_mode() -> str:
     print("Что сделать?")
     print("  1 — собрать свежий отчёт по каналам АФМ")
     print("  2 — дополнить файл, в который вы вставили ссылки")
+    print("  3 — настроить автоподсчёт в вашей таблице (делается один раз)")
     print()
     while True:
-        answer = input("Введите 1 или 2 и нажмите Enter: ").strip()
-        if answer in ("1", "2", ""):
+        answer = input("Введите 1, 2 или 3 и нажмите Enter: ").strip()
+        if answer in ("1", "2", "3", ""):
             return answer or "1"
-        print("Нужно 1 или 2.")
+        print("Нужно 1, 2 или 3.")
 
 
 def ask_file() -> Path | None:
@@ -166,6 +168,35 @@ def run_refill(region_book: RegionBook) -> None:
     print()
     print(f"Файл сохранён: {path}")
     open_file(path)
+
+
+NAMES = {"links": "репосты (количество публикаций)", "views": "просмотры", "comments": "комментарии", "place": "место"}
+
+
+def run_attach(region_book: RegionBook) -> None:
+    print()
+    print("Нужна ваша таблица с регионами. Программа не меняет её, а делает копию:")
+    print("добавляет лист «Ссылки» и ставит формулы в колонки «кол-во».")
+    path = ask_file()
+    if path is None:
+        return
+    try:
+        out, result = attach_counting(path, region_book)
+    except Exception as error:
+        print()
+        print(f"Не получилось: {error}")
+        return
+
+    print()
+    print(f"Готово: {out}")
+    print(f"Лист «{result.sheet}», регионов: {len(result.regions)}")
+    print("Считаются сами: " + ", ".join(NAMES[m] for m in result.columns))
+    if result.missing:
+        print("Не нашлось колонок: " + ", ".join(NAMES[m] for m in result.missing))
+    print()
+    print("Дальше: вставьте ссылки на лист «Ссылки» в колонку «Ссылка»,")
+    print("сохраните файл, запустите программу и выберите пункт 2.")
+    open_file(out)
 
 
 def run_collect(sources: list, region_book: RegionBook) -> None:
@@ -219,8 +250,11 @@ def main() -> None:
     config = json.loads((base_dir() / "config" / "sources.json").read_text(encoding="utf-8"))
     region_book = RegionBook.load(base_dir() / "config" / "regions.json")
 
-    if ask_mode() == "2":
+    mode = ask_mode()
+    if mode == "2":
         run_refill(region_book)
+    elif mode == "3":
+        run_attach(region_book)
     else:
         run_collect(config["sources"], region_book)
 
