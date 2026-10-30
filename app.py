@@ -81,6 +81,49 @@ def use_local_certificate() -> Path | None:
     return None
 
 
+MEMORY_FILE = "последний-файл.txt"
+
+
+def remember_file(path: Path) -> None:
+    try:
+        (app_folder() / MEMORY_FILE).write_text(str(path), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def remembered_file() -> Path | None:
+    try:
+        path = Path((app_folder() / MEMORY_FILE).read_text(encoding="utf-8").strip())
+        return path if path.is_file() else None
+    except Exception:
+        return None
+
+
+def nearby_workbook() -> Path | None:
+    """Таблица с листом «Ссылки», лежащая рядом с программой или на Рабочем столе."""
+    from openpyxl import load_workbook
+
+    folders = [app_folder(), desktop()]
+    candidates = []
+    for folder in folders:
+        try:
+            candidates.extend(sorted(folder.glob("*.xlsx"), key=lambda f: -f.stat().st_mtime))
+        except Exception:
+            continue
+    for candidate in candidates[:20]:
+        if candidate.name.startswith("~$"):
+            continue
+        try:
+            workbook = load_workbook(candidate, read_only=True)
+            if "Ссылки" in workbook.sheetnames:
+                workbook.close()
+                return candidate
+            workbook.close()
+        except Exception:
+            continue
+    return None
+
+
 def desktop() -> Path:
     if sys.platform.startswith("win"):
         found = windows_desktop()
@@ -123,23 +166,39 @@ def ask_limit() -> int:
     return max(1, min(value, 1000))
 
 
-def ask_mode() -> str:
+def ask_mode(known: Path | None) -> str:
     print("Что сделать?")
-    print("  1 — собрать свежий отчёт по каналам АФМ")
-    print("  2 — дополнить файл, в который вы вставили ссылки")
-    print("  3 — настроить автоподсчёт в вашей таблице (делается один раз)")
+    if known:
+        print(f"  Enter — обновить цифры в таблице «{known.name}»")
+        print("  1 — собрать свежий отчёт по каналам АФМ")
+        print("  3 — настроить автоподсчёт в другой таблице")
+        hint = "Нажмите Enter или введите 1 или 3: "
+        default = "2"
+    else:
+        print("  1 — собрать свежий отчёт по каналам АФМ")
+        print("  2 — дополнить файл, в который вы вставили ссылки")
+        print("  3 — настроить автоподсчёт в вашей таблице (делается один раз)")
+        hint = "Введите 1, 2 или 3 и нажмите Enter: "
+        default = "1"
     print()
     while True:
-        answer = input("Введите 1, 2 или 3 и нажмите Enter: ").strip()
+        answer = input(hint).strip()
         if answer in ("1", "2", "3", ""):
-            return answer or "1"
+            return answer or default
         print("Нужно 1, 2 или 3.")
 
 
-def ask_file() -> Path | None:
+def ask_file(suggest: Path | None = None) -> Path | None:
     print()
-    print("Перетащите файл Excel в это окно и нажмите Enter.")
-    raw = input("Путь к файлу: ").strip().strip("'\"")
+    if suggest:
+        print(f"Файл: {suggest.name}")
+        raw = input("Нажмите Enter, чтобы взять его, или перетащите сюда другой: ").strip()
+        if not raw:
+            return suggest
+    else:
+        print("Перетащите файл Excel в это окно и нажмите Enter.")
+        raw = input("Путь к файлу: ").strip()
+    raw = raw.strip().strip("'\"")
     if not raw:
         return None
     path = Path(raw.replace("\\ ", " ")).expanduser()
@@ -149,10 +208,11 @@ def ask_file() -> Path | None:
     return path
 
 
-def run_refill(region_book: RegionBook) -> None:
-    path = ask_file()
+def run_refill(region_book: RegionBook, known: Path | None = None) -> None:
+    path = ask_file(known or remembered_file() or nearby_workbook())
     if path is None:
         return
+    remember_file(path)
     print()
     print("Иду по ссылкам, это может занять несколько минут. Окно не закрывайте.")
     print()
@@ -182,6 +242,7 @@ def run_attach(region_book: RegionBook) -> None:
         return
     try:
         out, result = attach_counting(path, region_book)
+        remember_file(out)
     except Exception as error:
         print()
         print(f"Не получилось: {error}")
@@ -250,9 +311,10 @@ def main() -> None:
     config = json.loads((base_dir() / "config" / "sources.json").read_text(encoding="utf-8"))
     region_book = RegionBook.load(base_dir() / "config" / "regions.json")
 
-    mode = ask_mode()
+    known = remembered_file() or nearby_workbook()
+    mode = ask_mode(known)
     if mode == "2":
-        run_refill(region_book)
+        run_refill(region_book, known)
     elif mode == "3":
         run_attach(region_book)
     else:
