@@ -17,7 +17,7 @@ from .excel_report import LINKS_SHEET
 from .regions import RegionBook
 
 COL_NUMBER, COL_PLATFORM, COL_LINK, COL_DATE = 1, 2, 3, 4
-COL_REGION, COL_DESCRIPTION, COL_VIEWS, COL_COMMENTS = 5, 6, 7, 8
+COL_REGION, COL_DESCRIPTION, COL_VIEWS, COL_COMMENTS, COL_SOURCE = 5, 6, 7, 8, 9
 
 
 def is_own_page(url: str, own_pages: list[str] | None) -> bool:
@@ -34,6 +34,7 @@ class RefillResult:
     updated: int = 0
     skipped: int = 0
     foreign: int = 0  # ссылки на чужие ресурсы: считаются как публикации, без метрик
+    cleared: int = 0  # строки, где чужие метрики пришлось убрать
     failed: list[str] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -53,6 +54,19 @@ def refill_workbook(
     if LINKS_SHEET not in workbook.sheetnames:
         raise ValueError(f"В файле нет листа «{LINKS_SHEET}»")
     sheet = workbook[LINKS_SHEET]
+
+    # в таблицах, сделанных раньше, колонки «Страница» ещё нет
+    if not sheet.cell(row=1, column=COL_SOURCE).value:
+        from openpyxl.styles import Alignment
+
+        from .excel_report import HEADER_FILL, HEADER_FONT
+
+        header = sheet.cell(row=1, column=COL_SOURCE, value="Страница")
+        header.fill = HEADER_FILL
+        header.font = HEADER_FONT
+        header.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        sheet.column_dimensions["I"].width = 30
+
     result = RefillResult()
 
     for row in range(2, sheet.max_row + 1):
@@ -65,7 +79,22 @@ def refill_workbook(
             sheet.cell(row=row, column=column).value is not None
             for column in (COL_VIEWS, COL_COMMENTS)
         )
-        if has_numbers and not refresh:
+        known_source = sheet.cell(row=row, column=COL_SOURCE).value
+
+        # Правило простое: метрики только со своих страниц. Если по строке уже
+        # известно, чья это публикация, в сеть не ходим.
+        if known_source:
+            if not is_own_page(str(known_source), own_pages):
+                if has_numbers:
+                    for column in (COL_VIEWS, COL_COMMENTS):
+                        sheet.cell(row=row, column=column).value = None
+                    result.cleared += 1
+                result.foreign += 1
+                continue
+            if has_numbers and not refresh:
+                result.skipped += 1
+                continue
+        elif has_numbers and not refresh and is_own_page(link, own_pages):
             result.skipped += 1
             continue
 
@@ -93,11 +122,17 @@ def refill_workbook(
 
         # В ссылке на пост инстаграма имени аккаунта нет, поэтому смотрим,
         # чья это публикация, по самому посту.
+        put(COL_SOURCE, post.source or None)
+
         owner = post.source or link
         if is_own_page(owner, own_pages) or is_own_page(link, own_pages):
             for column, value in ((COL_VIEWS, post.views), (COL_COMMENTS, post.comments)):
                 put(column, value, overwrite=refresh)
         else:
+            if has_numbers:
+                for column in (COL_VIEWS, COL_COMMENTS):
+                    sheet.cell(row=row, column=column).value = None
+                result.cleared += 1
             result.foreign += 1
 
         if has_numbers:

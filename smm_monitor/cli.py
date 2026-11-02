@@ -104,7 +104,9 @@ def cmd_refill(args) -> None:
     )
     print(f"Заполнено строк: {result.filled}")
     if result.foreign:
-        print(f"Из них на чужих ресурсах (без метрик): {result.foreign}")
+        print(f"На чужих ресурсах (без метрик): {result.foreign}")
+    if result.cleared:
+        print(f"Убрано чужих цифр: {result.cleared}")
     if result.updated:
         print(f"Обновлено строк: {result.updated}")
     if result.skipped:

@@ -242,9 +242,11 @@ def run_refill(region_book: RegionBook, known: Path | None = None) -> None:
     print(f"Заполнено строк: {result.filled}")
     if result.foreign:
         print(
-            f"Из них ссылок на другие ресурсы: {result.foreign} — "
+            f"Ссылок на другие ресурсы: {result.foreign} — "
             "они посчитаны как публикации, без просмотров и комментариев"
         )
+    if result.cleared:
+        print(f"Убрано чужих цифр, попавших раньше: {result.cleared}")
     if result.skipped:
         print(f"Пропущено, цифры уже были: {result.skipped}")
     for problem in result.failed:

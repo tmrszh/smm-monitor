@@ -37,12 +37,14 @@ LINK_COLUMNS = [
     ("Описание", 60),
     ("Просмотры", 12),
     ("Комментарии", 13),
+    ("Страница", 30),
 ]
 COL_PLATFORM = "B"
 COL_LINK = "C"
 COL_REGION = "E"
 COL_VIEWS = "G"
 COL_COMMENTS = "H"
+COL_SOURCE = "I"
 
 HEADER_FILL = PatternFill("solid", fgColor="1F3864")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -80,6 +82,7 @@ def _fill_links(sheet, posts: list[Post], region_book: RegionBook) -> None:
         description.alignment = Alignment(wrap_text=True, vertical="top")
         sheet.cell(row=row, column=7, value=post.views)
         sheet.cell(row=row, column=8, value=post.comments)
+        sheet.cell(row=row, column=9, value=post.source)
         sheet.row_dimensions[row].height = ROW_HEIGHT
 
     # выпадающий список регионов для колонки «Регион» (на весь запас строк)
