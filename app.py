@@ -251,6 +251,21 @@ def run_refill(region_book: RegionBook, known: Path | None = None) -> None:
         print(f"Пропущено, цифры уже были: {result.skipped}")
     for problem in result.failed:
         print(f"Не получилось: {problem}")
+    if result.renamed:
+        print()
+        print("Исправлены названия регионов, чтобы таблица их увидела:")
+        for line in result.renamed:
+            print(f"  {line}")
+    if result.unknown_regions:
+        print()
+        print("Не узнала регион, выберите его из списка вручную:")
+        for line in result.unknown_regions:
+            print(f"  {line}")
+    if result.duplicates:
+        print()
+        print("Одна и та же публикация стоит в нескольких строках и считается дважды:")
+        for line in result.duplicates:
+            print(f"  {line}")
     print()
     print(f"Файл сохранён: {path}")
     open_file(path)

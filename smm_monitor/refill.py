@@ -7,12 +7,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from openpyxl import load_workbook
 
-from .collectors.single import fetch_post
+from .collectors.single import fetch_post, platform_of
 from .excel_report import LINKS_SHEET
 from .regions import RegionBook
 
@@ -28,6 +29,39 @@ def is_own_page(url: str, own_pages: list[str] | None) -> bool:
     return any(page.lower().strip("/ ") in lowered for page in own_pages)
 
 
+def normalize_region(value: str, region_book: RegionBook) -> str | None:
+    """Привести то, что человек вписал в «Регион», к названию из таблицы.
+
+    «Алматы» -> «г. Алматы», «Улытау» -> «Ұлытау», «Семей» -> «Абай».
+    None — если хотя бы одну часть не удалось узнать однозначно.
+    """
+    names = {name.lower(): name for name in region_book.names}
+    resolved: list[str] = []
+    for part in re.split(r"[;,]", value):
+        part = part.strip()
+        if not part:
+            continue
+        if part.lower() in names:
+            resolved.append(names[part.lower()])
+            continue
+        found = region_book.detect(part)
+        if len(found) != 1:
+            return None
+        resolved.append(found[0])
+    return "; ".join(dict.fromkeys(resolved)) or None
+
+
+def link_key(url: str) -> str:
+    """Один и тот же пост под разными ссылками: /p/ и /reel/, хвосты ?utm=..."""
+    match = re.search(r"instagram\.com/(?:p|reel|tv)/([\w\-]+)", url)
+    if match:
+        return f"instagram:{match.group(1)}"
+    match = re.search(r"t\.me/(?:s/)?([\w]+)/(\d+)", url)
+    if match:
+        return f"telegram:{match.group(1).lower()}/{match.group(2)}"
+    return url.split("?")[0].rstrip("/").lower()
+
+
 @dataclass
 class RefillResult:
     filled: int = 0
@@ -35,11 +69,10 @@ class RefillResult:
     skipped: int = 0
     foreign: int = 0  # ссылки на чужие ресурсы: считаются как публикации, без метрик
     cleared: int = 0  # строки, где чужие метрики пришлось убрать
-    failed: list[str] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        if self.failed is None:
-            self.failed = []
+    failed: list[str] = field(default_factory=list)
+    renamed: list[str] = field(default_factory=list)  # «Алматы» -> «г. Алматы»
+    unknown_regions: list[str] = field(default_factory=list)  # не узнали, что вписано
+    duplicates: list[str] = field(default_factory=list)  # одна публикация в нескольких строках
 
 
 def refill_workbook(
@@ -68,12 +101,30 @@ def refill_workbook(
         sheet.column_dimensions["I"].width = 30
 
     result = RefillResult()
+    seen: dict[str, list[int]] = {}
 
     for row in range(2, sheet.max_row + 1):
-        link = sheet.cell(row=row, column=COL_LINK).value
+        link_cell = sheet.cell(row=row, column=COL_LINK)
+        link = link_cell.value
         if not link or not str(link).strip().startswith("http"):
             continue
         link = str(link).strip()
+        if link_cell.value != link:
+            link_cell.value = link  # лишний пробел в начале ссылки
+
+        seen.setdefault(link_key(link), []).append(row)
+
+        # Таблица считает регион по точному названию: «Алматы» вместо
+        # «г. Алматы» она не увидит, поэтому приводим к нужному виду.
+        region_cell = sheet.cell(row=row, column=COL_REGION)
+        typed = str(region_cell.value).strip() if region_cell.value else ""
+        if typed and typed not in region_book.names:
+            fixed = normalize_region(typed, region_book)
+            if fixed and fixed != typed:
+                region_cell.value = fixed
+                result.renamed.append(f"строка {row}: «{typed}» → «{fixed}»")
+            elif not fixed:
+                result.unknown_regions.append(f"строка {row}: «{typed}»")
 
         has_numbers = any(
             sheet.cell(row=row, column=column).value is not None
@@ -96,6 +147,12 @@ def refill_workbook(
                 continue
         elif has_numbers and not refresh and is_own_page(link, own_pages):
             result.skipped += 1
+            continue
+
+        # Новостной сайт, а не телеграм или инстаграм — это репост: считаем
+        # его по региону, а метрик у него нет и не нужно.
+        if platform_of(link) is None:
+            result.foreign += 1
             continue
 
         if progress:
@@ -139,6 +196,12 @@ def refill_workbook(
             result.updated += 1
         else:
             result.filled += 1
+
+    for rows in seen.values():
+        if len(rows) > 1:
+            regions = [str(sheet.cell(row=r, column=COL_REGION).value or "—") for r in rows]
+            places = ", ".join(f"{r} ({reg})" for r, reg in zip(rows, regions))
+            result.duplicates.append(f"строки {places}")
 
     workbook.save(path)
     return result

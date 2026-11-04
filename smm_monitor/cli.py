@@ -113,6 +113,21 @@ def cmd_refill(args) -> None:
         print(f"Пропущено (цифры уже есть): {result.skipped}")
     for problem in result.failed:
         print(f"Не удалось: {problem}")
+    if result.renamed:
+        print()
+        print("Исправлены названия регионов, чтобы таблица их увидела:")
+        for line in result.renamed:
+            print(f"  {line}")
+    if result.unknown_regions:
+        print()
+        print("Не узнала регион, выберите его из списка вручную:")
+        for line in result.unknown_regions:
+            print(f"  {line}")
+    if result.duplicates:
+        print()
+        print("Одна и та же публикация стоит в нескольких строках и считается дважды:")
+        for line in result.duplicates:
+            print(f"  {line}")
     print(f"Файл: {Path(args.path).resolve()}")
 
 
