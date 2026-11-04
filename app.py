@@ -18,7 +18,7 @@ from smm_monitor.collectors import collect
 from smm_monitor.net import CERTIFICATE_HELP, is_certificate_error, use_system_certificates
 from smm_monitor.excel_report import build_workbook
 from smm_monitor.attach import attach_counting
-from smm_monitor.refill import refill_workbook
+from smm_monitor.refill import FileLockedError, is_open_in_excel, refill_workbook
 from smm_monitor.regions import RegionBook
 
 DEFAULT_LIMIT = 100
@@ -222,20 +222,40 @@ def own_pages() -> list[str]:
         return []
 
 
+def wait_until_closed(path: Path) -> bool:
+    """Попросить закрыть файл в Excel. False — человек передумал."""
+    print()
+    print(f"Файл «{path.name}» открыт в Excel, пока он открыт, сохранить нельзя.")
+    answer = input("Закройте его и нажмите Enter (или введите 0, чтобы выйти): ").strip()
+    return answer != "0"
+
+
 def run_refill(region_book: RegionBook, known: Path | None = None) -> None:
     path = ask_file(known or remembered_file() or nearby_workbook())
     if path is None:
         return
     remember_file(path)
+
+    # проверяем сразу, а не после нескольких минут сбора
+    while is_open_in_excel(path):
+        if not wait_until_closed(path):
+            return
+
     print()
     print("Иду по ссылкам, это может занять несколько минут. Окно не закрывайте.")
     print()
-    result = refill_workbook(
-        path,
-        region_book,
-        progress=lambda link: print(f"  {link}", flush=True),
-        own_pages=own_pages(),
-    )
+    try:
+        result = refill_workbook(
+            path,
+            region_book,
+            progress=lambda link: print(f"  {link}", flush=True),
+            own_pages=own_pages(),
+            on_locked=wait_until_closed,
+        )
+    except FileLockedError as error:
+        print()
+        print(error)
+        return
     if any(is_certificate_error(Exception(problem)) for problem in result.failed):
         print(CERTIFICATE_HELP)
     print()
@@ -266,6 +286,16 @@ def run_refill(region_book: RegionBook, known: Path | None = None) -> None:
         print("Одна и та же публикация стоит в нескольких строках и считается дважды:")
         for line in result.duplicates:
             print(f"  {line}")
+    if result.moved:
+        print()
+        print("Ссылки были не в той колонке, перенесла в «Ссылка»:")
+        for line in result.moved:
+            print(f"  {line}")
+    if result.no_region:
+        print()
+        print("У этих строк нет региона, поэтому в таблицу они не попали.")
+        print("Выберите регион из списка в колонке «Регион»:")
+        print("  " + ", ".join(result.no_region))
     print()
     print(f"Файл сохранён: {path}")
     open_file(path)

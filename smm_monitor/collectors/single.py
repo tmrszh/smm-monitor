@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+import time
 
 import requests
 
@@ -48,14 +49,53 @@ def _telegram_post(url: str) -> Post | None:
     return None
 
 
+# Инстаграм быстро ограничивает частые запросы, особенно если на каждую ссылку
+# открывать новое соединение. Поэтому одно соединение на весь прогон и пауза.
+INSTAGRAM_PAUSE = 3.0
+_instagram: tuple | None = None
+_last_instagram_request = 0.0
+
+
+def _instagram_client():
+    global _instagram
+    if _instagram is None:
+        from .instagram import _client
+
+        _instagram = _client()
+    return _instagram
+
+
+def _explain_instagram_error(error: Exception) -> str:
+    text = str(error).lower()
+    if "wait a few minutes" in text or "429" in text or "too many" in text:
+        return (
+            "инстаграм временно ограничил запросы. Запустите программу ещё раз "
+            "минут через 15, уже заполненные строки она повторно не тронет"
+        )
+    if "login" in text or "401" in text or "403" in text:
+        return "инстаграм не показывает этот пост без входа в аккаунт"
+    if "not found" in text or "404" in text or "doesn't exist" in text:
+        return "пост не найден, возможно, его удалили или ссылка неполная"
+    return f"инстаграм не ответил ({error})"
+
+
 def _instagram_post(url: str) -> Post | None:
+    global _last_instagram_request
     match = INSTAGRAM_POST.search(url)
     if not match:
         return None
-    from .instagram import _client, _views
+    from .instagram import _views
 
-    instaloader, loader = _client()
-    item = instaloader.Post.from_shortcode(loader.context, match.group(1))
+    instaloader, loader = _instagram_client()
+    wait = INSTAGRAM_PAUSE - (time.monotonic() - _last_instagram_request)
+    if wait > 0:
+        time.sleep(wait)
+    try:
+        item = instaloader.Post.from_shortcode(loader.context, match.group(1))
+    except Exception as error:
+        raise RuntimeError(_explain_instagram_error(error)) from error
+    finally:
+        _last_instagram_request = time.monotonic()
     return Post(
         platform="instagram",
         url=f"https://www.instagram.com/p/{item.shortcode}/",

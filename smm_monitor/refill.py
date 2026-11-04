@@ -51,6 +51,44 @@ def normalize_region(value: str, region_book: RegionBook) -> str | None:
     return "; ".join(dict.fromkeys(resolved)) or None
 
 
+def _misplaced_link(sheet, row: int) -> str | None:
+    """Ссылку вставили в соседнюю колонку — переносим в «Ссылка»."""
+    from openpyxl.utils import get_column_letter
+
+    for column in range(1, COL_SOURCE):
+        if column == COL_LINK:
+            continue
+        cell = sheet.cell(row=row, column=column)
+        value = str(cell.value or "").strip()
+        if value.startswith("http") and " " not in value:
+            sheet.cell(row=row, column=COL_LINK).value = value
+            cell.value = None
+            return get_column_letter(column)
+    return None
+
+
+def _region_from_page(url: str, region_book: RegionBook) -> str | None:
+    """Регион новости по заголовку и описанию страницы, если его не проставили."""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        from .collectors.telegram_web import HEADERS
+
+        response = requests.get(url, headers=HEADERS, timeout=15)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        parts = [soup.title.get_text(" ", strip=True) if soup.title else ""]
+        for name in ("og:title", "og:description", "description"):
+            tag = soup.find("meta", attrs={"property": name}) or soup.find("meta", attrs={"name": name})
+            if tag and tag.get("content"):
+                parts.append(tag["content"])
+        found = region_book.detect(" ".join(parts))
+        return "; ".join(found) if found else None
+    except Exception:
+        return None
+
+
 def link_key(url: str) -> str:
     """Один и тот же пост под разными ссылками: /p/ и /reel/, хвосты ?utm=..."""
     match = re.search(r"instagram\.com/(?:p|reel|tv)/([\w\-]+)", url)
@@ -73,6 +111,30 @@ class RefillResult:
     renamed: list[str] = field(default_factory=list)  # «Алматы» -> «г. Алматы»
     unknown_regions: list[str] = field(default_factory=list)  # не узнали, что вписано
     duplicates: list[str] = field(default_factory=list)  # одна публикация в нескольких строках
+    no_region: list[str] = field(default_factory=list)  # без региона строка никуда не идёт
+    moved: list[str] = field(default_factory=list)  # ссылку вставили не в ту колонку
+
+
+class FileLockedError(RuntimeError):
+    """Файл открыт в Excel, и сохранить его нельзя."""
+
+
+def is_open_in_excel(path: Path) -> bool:
+    """Excel, открывая книгу, кладёт рядом скрытый файл «~$имя.xlsx»."""
+    return (path.parent / f"~${path.name}").exists()
+
+
+def save_workbook(workbook, path: Path, on_locked=None) -> None:
+    """Сохранить; если файл занят — дать человеку закрыть его и попробовать снова."""
+    while True:
+        try:
+            workbook.save(path)
+            return
+        except PermissionError as error:
+            if on_locked is None or not on_locked(path):
+                raise FileLockedError(
+                    f"Файл «{path.name}» открыт в Excel, закройте его и запустите снова"
+                ) from error
 
 
 def refill_workbook(
@@ -81,6 +143,7 @@ def refill_workbook(
     refresh: bool = False,
     progress=None,
     own_pages: list[str] | None = None,
+    on_locked=None,
 ) -> RefillResult:
     path = Path(path)
     workbook = load_workbook(path)
@@ -105,6 +168,10 @@ def refill_workbook(
 
     for row in range(2, sheet.max_row + 1):
         link_cell = sheet.cell(row=row, column=COL_LINK)
+        if not link_cell.value:
+            moved_from = _misplaced_link(sheet, row)
+            if moved_from:
+                result.moved.append(f"строка {row}: из колонки {moved_from} в «Ссылка»")
         link = link_cell.value
         if not link or not str(link).strip().startswith("http"):
             continue
@@ -152,6 +219,12 @@ def refill_workbook(
         # Новостной сайт, а не телеграм или инстаграм — это репост: считаем
         # его по региону, а метрик у него нет и не нужно.
         if platform_of(link) is None:
+            if not region_cell.value:
+                if progress:
+                    progress(link)
+                found = _region_from_page(link, region_book)
+                if found:
+                    region_cell.value = found
             result.foreign += 1
             continue
 
@@ -197,11 +270,16 @@ def refill_workbook(
         else:
             result.filled += 1
 
+    for row in range(2, sheet.max_row + 1):
+        if str(sheet.cell(row=row, column=COL_LINK).value or "").strip().startswith("http"):
+            if not sheet.cell(row=row, column=COL_REGION).value:
+                result.no_region.append(f"строка {row}")
+
     for rows in seen.values():
         if len(rows) > 1:
             regions = [str(sheet.cell(row=r, column=COL_REGION).value or "—") for r in rows]
             places = ", ".join(f"{r} ({reg})" for r, reg in zip(rows, regions))
             result.duplicates.append(f"строки {places}")
 
-    workbook.save(path)
+    save_workbook(workbook, path, on_locked)
     return result

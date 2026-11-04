@@ -128,6 +128,14 @@ def cmd_refill(args) -> None:
         print("Одна и та же публикация стоит в нескольких строках и считается дважды:")
         for line in result.duplicates:
             print(f"  {line}")
+    if result.moved:
+        print()
+        print("Ссылки перенесены в колонку «Ссылка»:")
+        for line in result.moved:
+            print(f"  {line}")
+    if result.no_region:
+        print()
+        print("Без региона (в таблицу не попали): " + ", ".join(result.no_region))
     print(f"Файл: {Path(args.path).resolve()}")
 
 
