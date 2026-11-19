@@ -73,7 +73,14 @@ def _explain_instagram_error(error: Exception) -> str:
             "минут через 15, уже заполненные строки она повторно не тронет"
         )
     if "login" in text or "401" in text or "403" in text or "metadata failed" in text:
-        return "инстаграм не показывает этот пост без входа в аккаунт"
+        from .instagram import has_session
+
+        if has_session():
+            return (
+                "инстаграм не открыл пост. Возможно, вход в аккаунт устарел: "
+                "запустите программу, введите 4 и войдите заново"
+            )
+        return "инстаграм не показывает пост без входа в аккаунт: запустите программу и введите 4"
     if "not found" in text or "404" in text or "doesn't exist" in text:
         return "пост не найден, возможно, его удалили или ссылка неполная"
     return f"инстаграм не ответил ({error})"

@@ -18,6 +18,7 @@ from smm_monitor.collectors import collect
 from smm_monitor.net import CERTIFICATE_HELP, is_certificate_error, use_system_certificates
 from smm_monitor.excel_report import build_workbook
 from smm_monitor.attach import attach_counting
+from smm_monitor.collectors import instagram
 from smm_monitor.refill import FileLockedError, is_open_in_excel, refill_workbook
 from smm_monitor.regions import RegionBook
 
@@ -172,26 +173,76 @@ def ask_limit() -> int:
     return max(1, min(value, 1000))
 
 
+def login_title() -> str:
+    owner = instagram.session_owner()
+    if owner:
+        return f"инстаграм: вход выполнен ({owner}), войти заново"
+    return "войти в инстаграм (нужно один раз, чтобы считались комментарии)"
+
+
+def run_login() -> None:
+    import getpass
+
+    print()
+    print("Вход в инстаграм. Подойдёт любой рабочий аккаунт.")
+    print("Пароль никуда не сохраняется и никому не отправляется, кроме инстаграма.")
+    print("Программа запоминает только сам вход, как «запомнить меня» в браузере.")
+    print()
+    username = input("Логин (имя аккаунта): ").strip()
+    if not username:
+        return
+    print("Пароль при вводе не показывается, это нормально. Введите и нажмите Enter.")
+    password = getpass.getpass("Пароль: ")
+    if not password:
+        return
+    print()
+    print("Вхожу...")
+    try:
+        owner = instagram.login(
+            username,
+            password,
+            ask_code=lambda: input("Инстаграм прислал код (в SMS или приложении), введите его: "),
+        )
+    except instagram.LoginProblem as error:
+        print()
+        print(f"Не получилось войти. {error}")
+        return
+    except Exception as error:
+        print()
+        if is_certificate_error(error):
+            print(CERTIFICATE_HELP)
+        else:
+            print(f"Не получилось войти: {error}")
+        return
+    finally:
+        password = ""
+    print()
+    print(f"Готово, вход выполнен: {owner}")
+    print("Теперь при обновлении таблицы комментарии из инстаграма будут считаться сами.")
+
+
 def ask_mode(known: Path | None) -> str:
     print("Что сделать?")
     if known:
         print(f"  Enter — обновить цифры в таблице «{known.name}»")
         print("  1 — собрать свежий отчёт по каналам АФМ")
         print("  3 — настроить автоподсчёт в другой таблице")
-        hint = "Нажмите Enter или введите 1 или 3: "
+        print(f"  4 — {login_title()}")
+        hint = "Нажмите Enter или введите 1, 3 или 4: "
         default = "2"
     else:
         print("  1 — собрать свежий отчёт по каналам АФМ")
         print("  2 — дополнить файл, в который вы вставили ссылки")
         print("  3 — настроить автоподсчёт в вашей таблице (делается один раз)")
-        hint = "Введите 1, 2 или 3 и нажмите Enter: "
+        print(f"  4 — {login_title()}")
+        hint = "Введите 1, 2, 3 или 4 и нажмите Enter: "
         default = "1"
     print()
     while True:
         answer = input(hint).strip()
-        if answer in ("1", "2", "3", ""):
+        if answer in ("1", "2", "3", "4", ""):
             return answer or default
-        print("Нужно 1, 2 или 3.")
+        print("Нужно 1, 2, 3 или 4.")
 
 
 def ask_file(suggest: Path | None = None) -> Path | None:
@@ -296,6 +347,8 @@ def run_refill(region_book: RegionBook, known: Path | None = None) -> None:
         print("Инстаграм не открыл эти посты, поэтому непонятно, чьи они: " + ", ".join(result.unknown_owner))
         print("Пока не ясно, в репосты они не идут. Если это СМИ, впишите название страницы")
         print("в колонку «Страница» (например, tengrinewskz), и строка посчитается.")
+        if not instagram.has_session():
+            print("Чтобы инстаграм открывал посты, запустите программу, введите 4 и войдите.")
     if result.no_region:
         print()
         print("У этих строк нет региона, поэтому в таблицу они не попали.")
@@ -397,9 +450,13 @@ def main() -> None:
     config = json.loads((base_dir() / "config" / "sources.json").read_text(encoding="utf-8"))
     region_book = RegionBook.load(base_dir() / "config" / "regions.json")
 
+    instagram.session_folder = app_folder()
+
     known = remembered_file() or nearby_workbook()
     mode = ask_mode(known)
-    if mode == "2":
+    if mode == "4":
+        run_login()
+    elif mode == "2":
         run_refill(region_book, known)
     elif mode == "3":
         run_attach(region_book)
