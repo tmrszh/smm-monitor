@@ -21,6 +21,7 @@ from .excel_report import (
     COL_COMMENTS,
     COL_LINK,
     COL_REGION,
+    COL_SOURCE,
     COL_VIEWS,
     HEADER_FILL,
     HEADER_FONT,
@@ -48,6 +49,7 @@ class AttachResult:
     columns: dict[str, str] = field(default_factory=dict)  # метрика -> буква колонки
     regions: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)  # метрики, которых нет в таблице
+    kept_manual: int = 0  # ячейки с числами, вписанными руками, — их не трогаем
 
 
 def _metric_of(text: str) -> str | None:
@@ -158,10 +160,44 @@ def _add_links_sheet(workbook, region_column_letter: str, first: int, last: int,
     return sheet
 
 
+def _own_handles(own_pages: list[str] | None) -> list[str]:
+    """«t.me/afm_rk», «instagram.com/afm_rk» -> «afm_rk»."""
+    handles: list[str] = []
+    for page in own_pages or []:
+        handle = page.strip().strip("/").rsplit("/", 1)[-1]
+        if handle and handle not in handles:
+            handles.append(handle)
+    return handles
+
+
+def _reposts_formula(region_range: str, key: str, own_pages: list[str] | None) -> str:
+    """Репосты — публикации в СМИ. Посты самого ведомства сюда не входят:
+    у них считаются только просмотры и комментарии.
+
+    Свой пост узнаём по ссылке (в телеграме там имя канала) или по колонке
+    «Страница» (в ссылке на пост инстаграма имени аккаунта нет).
+    """
+    handles = _own_handles(own_pages)
+    if not handles:
+        return f"=COUNTIF({region_range},{key})"
+    links = f"'{LINKS_SHEET}'"
+    link_range = f"{links}!${COL_LINK}$2:${COL_LINK}${MAX_ROWS + 1}"
+    source_range = f"{links}!${COL_SOURCE}$2:${COL_SOURCE}${MAX_ROWS + 1}"
+    conditions = [f"{region_range},{key}"]
+    for handle in handles:
+        conditions.append(f'{link_range},"<>*{handle}*"')
+        conditions.append(f'{source_range},"<>*{handle}*"')
+    # Пост инстаграма, который не удалось открыть, мог быть и постом АФМ:
+    # пока колонка «Страница» пустая, в репосты его не записываем.
+    unknown = f'{region_range},{key},{link_range},"*instagram.com*",{source_range},""'
+    return f"=COUNTIFS({','.join(conditions)})-COUNTIFS({unknown})"
+
+
 def attach_counting(
     path: str | Path,
     region_book: RegionBook,
     out_path: str | Path | None = None,
+    own_pages: list[str] | None = None,
 ) -> tuple[Path, AttachResult]:
     """Добавить в книгу лист «Ссылки» и формулы автоподсчёта в колонки «кол-во»."""
     path = Path(path)
@@ -209,13 +245,20 @@ def attach_counting(
     for row in range(first_row, last_row + 1):
         key = f'"*"&${region_letter}{row}&"*"'
         for metric, column in metric_columns.items():
+            cell = sheet.cell(row=row, column=column)
+            # Число, вписанное руками (например, просмотры из статистики
+            # инстаграма), важнее нашей формулы — оставляем как есть.
+            if cell.value is not None and not str(cell.value).startswith("="):
+                if already_prepared:
+                    result.kept_manual += 1
+                    continue
             if metric == "links":
-                formula = f"=COUNTIF({region_range},{key})"
+                formula = _reposts_formula(region_range, key, own_pages)
             else:
                 values = COL_VIEWS if metric == "views" else COL_COMMENTS
                 value_range = f"{links}!${values}$2:${values}${MAX_ROWS + 1}"
                 formula = f"=SUMIF({region_range},{key},{value_range})"
-            sheet.cell(row=row, column=column, value=formula)
+            cell.value = formula
 
     place = _rank_column(sheet, first_row, last_row)
     if place:

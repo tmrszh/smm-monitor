@@ -291,6 +291,11 @@ def run_refill(region_book: RegionBook, known: Path | None = None) -> None:
         print("Ссылки были не в той колонке, перенесла в «Ссылка»:")
         for line in result.moved:
             print(f"  {line}")
+    if result.unknown_owner:
+        print()
+        print("Инстаграм не открыл эти посты, поэтому непонятно, чьи они: " + ", ".join(result.unknown_owner))
+        print("Пока не ясно, в репосты они не идут. Если это СМИ, впишите название страницы")
+        print("в колонку «Страница» (например, tengrinewskz), и строка посчитается.")
     if result.no_region:
         print()
         print("У этих строк нет региона, поэтому в таблицу они не попали.")
@@ -312,7 +317,7 @@ def run_attach(region_book: RegionBook) -> None:
     if path is None:
         return
     try:
-        out, result = attach_counting(path, region_book)
+        out, result = attach_counting(path, region_book, own_pages=own_pages())
         remember_file(out)
     except Exception as error:
         print()
@@ -321,7 +326,9 @@ def run_attach(region_book: RegionBook) -> None:
 
     print()
     if result.already_prepared:
-        print("Эта таблица уже настроена, ничего менять не нужно.")
+        print("Формулы в таблице обновлены.")
+        if result.kept_manual:
+            print(f"Числа, вписанные вами вручную, не тронуты: {result.kept_manual}")
         print(f"Файл: {out}")
         print()
         print("Чтобы обновить цифры, вставьте ссылки на лист «Ссылки»,")

@@ -72,7 +72,7 @@ def _explain_instagram_error(error: Exception) -> str:
             "инстаграм временно ограничил запросы. Запустите программу ещё раз "
             "минут через 15, уже заполненные строки она повторно не тронет"
         )
-    if "login" in text or "401" in text or "403" in text:
+    if "login" in text or "401" in text or "403" in text or "metadata failed" in text:
         return "инстаграм не показывает этот пост без входа в аккаунт"
     if "not found" in text or "404" in text or "doesn't exist" in text:
         return "пост не найден, возможно, его удалили или ссылка неполная"

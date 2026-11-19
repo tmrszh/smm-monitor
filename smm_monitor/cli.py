@@ -133,15 +133,29 @@ def cmd_refill(args) -> None:
         print("Ссылки перенесены в колонку «Ссылка»:")
         for line in result.moved:
             print(f"  {line}")
+    if result.unknown_owner:
+        print()
+        print("Инстаграм не открыл эти посты, поэтому непонятно, чьи они: " + ", ".join(result.unknown_owner))
+        print("Пока не ясно, в репосты они не идут. Если это СМИ, впишите название страницы")
+        print("в колонку «Страница» (например, tengrinewskz), и строка посчитается.")
     if result.no_region:
         print()
         print("Без региона (в таблицу не попали): " + ", ".join(result.no_region))
     print(f"Файл: {Path(args.path).resolve()}")
 
 
+def _own_pages(args) -> list[str]:
+    config = Path(args.config) if getattr(args, "config", None) else DEFAULT_SOURCES
+    if config.is_file():
+        return json.loads(config.read_text(encoding="utf-8")).get("own_pages") or []
+    return []
+
+
 def cmd_attach(args) -> None:
     region_book = RegionBook.load(args.regions)
-    out, result = attach_counting(args.path, region_book, args.out)
+    out, result = attach_counting(args.path, region_book, args.out, own_pages=_own_pages(args))
+    if result.kept_manual:
+        print(f"Числа, вписанные вручную, не тронуты: {result.kept_manual}")
     print(f"Лист «{result.sheet}», строки {result.first_row}-{result.last_row}")
     print(f"Колонки автоподсчёта: {result.columns}")
     if result.missing:

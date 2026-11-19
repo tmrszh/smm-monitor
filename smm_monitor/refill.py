@@ -94,6 +94,9 @@ def link_key(url: str) -> str:
     match = re.search(r"instagram\.com/(?:p|reel|tv)/([\w\-]+)", url)
     if match:
         return f"instagram:{match.group(1)}"
+    match = re.search(r"t\.me/c/(\d+)/(\d+)", url)
+    if match:
+        return f"telegram:c{match.group(1)}/{match.group(2)}"
     match = re.search(r"t\.me/(?:s/)?([\w]+)/(\d+)", url)
     if match:
         return f"telegram:{match.group(1).lower()}/{match.group(2)}"
@@ -112,6 +115,7 @@ class RefillResult:
     unknown_regions: list[str] = field(default_factory=list)  # не узнали, что вписано
     duplicates: list[str] = field(default_factory=list)  # одна публикация в нескольких строках
     no_region: list[str] = field(default_factory=list)  # без региона строка никуда не идёт
+    unknown_owner: list[str] = field(default_factory=list)  # пост инстаграма не открылся
     moved: list[str] = field(default_factory=list)  # ссылку вставили не в ту колонку
 
 
@@ -198,6 +202,11 @@ def refill_workbook(
             for column in (COL_VIEWS, COL_COMMENTS)
         )
         known_source = sheet.cell(row=row, column=COL_SOURCE).value
+        if not known_source:
+            channel = re.search(r"t\.me/(?:s/)?([A-Za-z]\w+)/\d+", link)
+            if channel:
+                known_source = f"https://t.me/{channel.group(1)}"
+                sheet.cell(row=row, column=COL_SOURCE).value = known_source
 
         # Правило простое: метрики только со своих страниц. Если по строке уже
         # известно, чья это публикация, в сеть не ходим.
@@ -218,7 +227,7 @@ def refill_workbook(
 
         # Новостной сайт, а не телеграм или инстаграм — это репост: считаем
         # его по региону, а метрик у него нет и не нужно.
-        if platform_of(link) is None:
+        if platform_of(link) is None or "t.me/c/" in link:
             if not region_cell.value:
                 if progress:
                     progress(link)
@@ -233,6 +242,8 @@ def refill_workbook(
         try:
             post = fetch_post(link)
         except Exception as error:
+            if platform_of(link) == "instagram":
+                result.unknown_owner.append(f"строка {row}")
             result.failed.append(f"{link} — {error}")
             continue
         if post is None:
