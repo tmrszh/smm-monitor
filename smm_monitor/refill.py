@@ -20,6 +20,22 @@ from .regions import RegionBook
 COL_NUMBER, COL_PLATFORM, COL_LINK, COL_DATE = 1, 2, 3, 4
 COL_REGION, COL_DESCRIPTION, COL_VIEWS, COL_COMMENTS, COL_SOURCE = 5, 6, 7, 8, 9
 
+# Жёлтым программа отмечает строки, которые не смогла заполнить, — чтобы
+# сразу было видно, где цифру нужно посмотреть и вписать самой.
+NOT_FILLED_COLOR = "FFFFE699"
+
+
+def _mark_not_filled(sheet, row: int, on: bool) -> None:
+    from openpyxl.styles import PatternFill
+
+    for column in (COL_LINK, COL_COMMENTS):
+        cell = sheet.cell(row=row, column=column)
+        ours = cell.fill is not None and cell.fill.fgColor is not None and cell.fill.fgColor.rgb == NOT_FILLED_COLOR
+        if on:
+            cell.fill = PatternFill("solid", fgColor=NOT_FILLED_COLOR)
+        elif ours:
+            cell.fill = PatternFill(fill_type=None)
+
 
 def is_own_page(url: str, own_pages: list[str] | None) -> bool:
     """Ссылка ведёт на страницу самого ведомства?"""
@@ -219,9 +235,11 @@ def refill_workbook(
                 result.foreign += 1
                 continue
             if has_numbers and not refresh:
+                _mark_not_filled(sheet, row, False)
                 result.skipped += 1
                 continue
         elif has_numbers and not refresh and is_own_page(link, own_pages):
+            _mark_not_filled(sheet, row, False)
             result.skipped += 1
             continue
 
@@ -245,7 +263,9 @@ def refill_workbook(
             if platform_of(link) == "instagram":
                 result.unknown_owner.append(f"строка {row}")
             result.failed.append(f"{link} — {error}")
+            _mark_not_filled(sheet, row, True)
             continue
+        _mark_not_filled(sheet, row, False)
         if post is None:
             result.failed.append(f"{link} — ссылка не распознана")
             continue

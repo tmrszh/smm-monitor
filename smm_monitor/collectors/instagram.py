@@ -19,16 +19,61 @@ from ..models import Post
 from .common import instagram_username
 
 SESSION_FILE = "инстаграм-вход.json"
-# куда app.py кладёт файл сессии; None — рядом с текущей папкой
+# старое место: рядом с программой (app.py задаёт папку). Его читаем, чтобы
+# не просить войти заново тех, кто уже вошёл в прошлой версии.
 session_folder: Path | None = None
 
 
+def _settings_folder() -> Path:
+    """Постоянная папка настроек: вход не теряется, если программу заменить
+    новой версией или положить в другую папку."""
+    base = os.getenv("APPDATA")
+    folder = Path(base) / "Отчёт АФМ" if base else Path.home() / ".afm-report"
+    return folder
+
+
 def session_path() -> Path:
-    return (session_folder or Path.cwd()) / SESSION_FILE
+    """Куда сохранять вход."""
+    return _settings_folder() / SESSION_FILE
+
+
+def _old_places() -> list[Path]:
+    """Где мог остаться вход от прошлой версии: рядом с программой, в Загрузках
+    или на Рабочем столе (и в папках на один уровень глубже)."""
+    places = [(session_folder or Path.cwd()) / SESSION_FILE]
+    home = Path.home()
+    for folder in (
+        home / "Downloads", home / "Загрузки", home / "Desktop", home / "Рабочий стол",
+        home / "OneDrive" / "Desktop", home / "OneDrive" / "Рабочий стол",
+    ):
+        try:
+            places.append(folder / SESSION_FILE)
+            places.extend(folder.glob(f"*/{SESSION_FILE}"))
+        except Exception:
+            continue
+    return places
+
+
+def _existing_session() -> Path | None:
+    if session_path().is_file():
+        return session_path()
+    for path in _old_places():
+        try:
+            if path.is_file():
+                # переносим в постоянное место, чтобы дальше не искать
+                try:
+                    session_path().parent.mkdir(parents=True, exist_ok=True)
+                    session_path().write_bytes(path.read_bytes())
+                    return session_path()
+                except Exception:
+                    return path
+        except Exception:
+            continue
+    return None
 
 
 def has_session() -> bool:
-    return session_path().is_file()
+    return _existing_session() is not None
 
 
 def _new_loader():
@@ -82,22 +127,32 @@ def login(username: str, password: str, ask_code) -> str:
 
     data = {"username": loader.context.username or username, "session": loader.save_session()}
     path = session_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data), encoding="utf-8")
     return data["username"]
 
 
 def logout() -> None:
+    for path in (session_path(), *_old_places()):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _read_session() -> dict | None:
+    path = _existing_session()
+    if path is None:
+        return None
     try:
-        session_path().unlink()
-    except FileNotFoundError:
-        pass
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def session_owner() -> str | None:
-    try:
-        return json.loads(session_path().read_text(encoding="utf-8"))["username"]
-    except Exception:
-        return None
+    data = _read_session()
+    return data.get("username") if data else None
 
 
 def _client():
@@ -112,12 +167,13 @@ def _client():
     env_login = os.getenv("INSTAGRAM_LOGIN")
     if env_login:
         loader.load_session_from_file(env_login, os.getenv("INSTAGRAM_SESSION_FILE"))
-    elif has_session():
-        try:
-            data = json.loads(session_path().read_text(encoding="utf-8"))
-            loader.load_session(data["username"], data["session"])
-        except Exception:
-            pass  # файл испорчен — работаем без входа, app.py предложит войти заново
+    else:
+        data = _read_session()
+        if data:
+            try:
+                loader.load_session(data["username"], data["session"])
+            except Exception:
+                pass  # файл испорчен — работаем без входа, app.py предложит войти заново
     return instaloader, loader
 
 

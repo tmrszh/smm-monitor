@@ -322,6 +322,10 @@ def run_refill(region_book: RegionBook, known: Path | None = None) -> None:
         print(f"Пропущено, цифры уже были: {result.skipped}")
     for problem in result.failed:
         print(f"Не получилось: {problem}")
+    if result.failed:
+        print()
+        print(f"Строки, которые не получилось заполнить ({len(result.failed)}), выделены в таблице жёлтым.")
+        print("Цифру по ним можно вписать вручную, тогда выделение уберётся при следующем запуске.")
     if result.renamed:
         print()
         print("Исправлены названия регионов, чтобы таблица их увидела:")
