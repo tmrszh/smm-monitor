@@ -86,6 +86,31 @@ def _explain_instagram_error(error: Exception) -> str:
     return f"инстаграм не ответил ({error})"
 
 
+def _instagram_post_app(instaloader, loader, shortcode: str) -> Post:
+    """Пост через запрос мобильного приложения (только после входа)."""
+    media_id = instaloader.Post.shortcode_to_mediaid(shortcode)
+    data = loader.context.get_iphone_json(f"api/v1/media/{media_id}/info/", {})
+    media = (data.get("items") or [None])[0]
+    if not media:
+        raise ValueError("пустой ответ")
+    caption = media.get("caption") or {}
+    taken_at = media.get("taken_at")
+    views = media.get("play_count") or media.get("view_count") or media.get("ig_play_count")
+    from datetime import datetime, timezone
+
+    owner = (media.get("user") or {}).get("username") or ""
+    return Post(
+        platform="instagram",
+        url=f"https://www.instagram.com/p/{media.get('code') or shortcode}/",
+        source=f"https://www.instagram.com/{owner}/" if owner else None,
+        posted_at=datetime.fromtimestamp(taken_at, timezone.utc).isoformat() if taken_at else None,
+        description=(caption.get("text") or "").strip(),
+        views=int(views) if views else None,
+        likes=media.get("like_count"),
+        comments=media.get("comment_count"),
+    )
+
+
 def _instagram_post(url: str) -> Post | None:
     global _last_instagram_request
     match = INSTAGRAM_POST.search(url)
@@ -98,6 +123,14 @@ def _instagram_post(url: str) -> Post | None:
     if wait > 0:
         time.sleep(wait)
     try:
+        if loader.context.is_logged_in:
+            # После входа берём пост тем же способом, что и приложение
+            # инстаграма: этот запрос работает, даже когда веб-запрос
+            # instaloader перестаёт отвечать после очередных изменений сайта.
+            try:
+                return _instagram_post_app(instaloader, loader, match.group(1))
+            except Exception:
+                pass
         item = instaloader.Post.from_shortcode(loader.context, match.group(1))
     except Exception as error:
         raise RuntimeError(_explain_instagram_error(error)) from error
