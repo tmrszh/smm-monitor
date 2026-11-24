@@ -6,3 +6,4 @@ truststore==0.10.1
 telethon==1.37.0
 # опционально: метрики Instagram
 instaloader==4.14.1
+instagrapi==3.2.19

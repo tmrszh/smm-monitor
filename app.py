@@ -201,7 +201,7 @@ def run_login() -> None:
         owner = instagram.login(
             username,
             password,
-            ask_code=lambda: input("Инстаграм прислал код (в SMS или приложении), введите его: "),
+            ask_code=lambda: input("Инстаграм прислал код (в SMS, на почту или в приложении), введите его: "),
         )
     except instagram.LoginProblem as error:
         print()
@@ -468,7 +468,23 @@ def main() -> None:
         run_collect(config["sources"], region_book)
 
 
+def selftest() -> None:
+    """Проверка собранного файла в CI: все библиотеки на месте."""
+    import instagrapi  # noqa: F401
+    import instaloader  # noqa: F401
+    import openpyxl  # noqa: F401
+
+    from smm_monitor.collectors.instagram import _app_client
+
+    _app_client()
+    RegionBook.load(base_dir() / "config" / "regions.json")
+    print("selftest ok")
+
+
 if __name__ == "__main__":
+    if "--selftest" in sys.argv:
+        selftest()
+        sys.exit(0)
     try:
         main()
     except Exception:

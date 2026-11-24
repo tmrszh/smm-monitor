@@ -93,43 +93,82 @@ class LoginProblem(RuntimeError):
     """Понятное человеку объяснение, почему войти не вышло."""
 
 
-def login(username: str, password: str, ask_code) -> str:
-    """Войти и сохранить сессию. ask_code() спрашивает код двухэтапной проверки.
+def _app_client(settings: dict | None = None):
+    """Клиент, который ходит в инстаграм так же, как его мобильное приложение."""
+    from instagrapi import Client
 
-    Возвращает имя аккаунта. Пароль не сохраняется.
+    client = Client(settings=settings, delay_range=[1, 3], timezone_offset=5 * 3600)
+    client.logger.disabled = True
+    return client
+
+
+def login(username: str, password: str, ask_code) -> str:
+    """Войти и сохранить вход. ask_code() спрашивает код подтверждения.
+
+    Вход идёт как из мобильного приложения: вход через сайт инстаграм
+    программам больше не даёт («fail» без объяснений). Возвращает имя
+    аккаунта. Пароль не сохраняется.
     """
-    from instaloader.exceptions import (
-        BadCredentialsException,
-        ConnectionException,
-        TwoFactorAuthRequiredException,
+    from instagrapi.exceptions import (
+        BadCredentials,
+        BadPassword,
+        ChallengeRequired,
+        ChallengeUnknownStep,
+        PleaseWaitFewMinutes,
+        RecaptchaChallengeForm,
+        SelectContactPointRecoveryForm,
+        TwoFactorRequired,
     )
 
     username = username.strip().lstrip("@")
-    loader = _new_loader()
+    client = _app_client()
+    client.challenge_code_handler = lambda _user, _choice: ask_code().strip().replace(" ", "")
     try:
         try:
-            loader.login(username, password)
-        except TwoFactorAuthRequiredException:
-            loader.two_factor_login(ask_code().strip().replace(" ", ""))
-    except BadCredentialsException as error:
-        raise LoginProblem("Неверный логин или пароль.") from error
-    except ConnectionException as error:
-        text = str(error).lower()
-        if "checkpoint" in text or "challenge" in text:
-            raise LoginProblem(
-                "Инстаграм просит подтвердить вход. Откройте инстаграм на телефоне,\n"
-                "там будет вопрос, вы ли это входите, нажмите «Это я».\n"
-                "Потом запустите программу и войдите ещё раз."
-            ) from error
-        if "wait a few minutes" in text or "429" in text:
-            raise LoginProblem("Инстаграм просит подождать. Попробуйте минут через 15.") from error
+            client.login(username, password)
+        except TwoFactorRequired:
+            client.login(username, password, verification_code=ask_code().strip().replace(" ", ""))
+    except (BadPassword, BadCredentials) as error:
+        raise LoginProblem(
+            "Неверный логин или пароль. Проверьте, что включена английская раскладка."
+        ) from error
+    except PleaseWaitFewMinutes as error:
+        raise LoginProblem("Инстаграм просит подождать. Попробуйте минут через 15.") from error
+    except (
+        ChallengeRequired,
+        ChallengeUnknownStep,
+        RecaptchaChallengeForm,
+        SelectContactPointRecoveryForm,
+    ) as error:
+        raise LoginProblem(
+            "Инстаграм просит подтвердить вход. Откройте инстаграм на телефоне,\n"
+            "там будет вопрос, вы ли это входите, нажмите «Это я».\n"
+            "Потом запустите программу и войдите ещё раз."
+        ) from error
+    except LoginProblem:
+        raise
+    except Exception as error:
         raise LoginProblem(f"Инстаграм не пустил: {error}") from error
 
-    data = {"username": loader.context.username or username, "session": loader.save_session()}
+    data = {"engine": "app", "username": username, "settings": client.get_settings()}
     path = session_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data), encoding="utf-8")
-    return data["username"]
+    path.write_text(json.dumps(data, default=str), encoding="utf-8")
+    return username
+
+
+_app = None
+
+
+def app_client():
+    """Клиент со входом через приложение или None, если так не входили."""
+    global _app
+    if _app is None:
+        data = _read_session()
+        if not data or data.get("engine") != "app":
+            return None
+        _app = _app_client(data["settings"])
+    return _app
 
 
 def logout() -> None:
@@ -169,7 +208,7 @@ def _client():
         loader.load_session_from_file(env_login, os.getenv("INSTAGRAM_SESSION_FILE"))
     else:
         data = _read_session()
-        if data:
+        if data and "session" in data:
             try:
                 loader.load_session(data["username"], data["session"])
             except Exception:

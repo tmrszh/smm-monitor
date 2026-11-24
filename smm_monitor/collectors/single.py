@@ -72,6 +72,16 @@ def _explain_instagram_error(error: Exception) -> str:
             "инстаграм временно ограничил запросы. Запустите программу ещё раз "
             "минут через 15, уже заполненные строки она повторно не тронет"
         )
+    if "please wait" in text or "feedback" in text:
+        return (
+            "инстаграм временно ограничил запросы. Запустите программу ещё раз "
+            "минут через 15, уже заполненные строки она повторно не тронет"
+        )
+    if "challenge" in text or "checkpoint" in text:
+        return (
+            "инстаграм просит подтвердить вход: откройте его на телефоне, "
+            "нажмите «Это я», потом в программе введите 4 и войдите заново"
+        )
     if "login" in text or "401" in text or "403" in text or "metadata failed" in text:
         from .instagram import has_session
 
@@ -84,6 +94,23 @@ def _explain_instagram_error(error: Exception) -> str:
     if "not found" in text or "404" in text or "doesn't exist" in text:
         return "пост не найден, возможно, его удалили или ссылка неполная"
     return f"инстаграм не ответил ({error})"
+
+
+def _instagram_post_via_app(client, shortcode: str) -> Post:
+    """Пост через клиент, вошедший как мобильное приложение."""
+    media = client.media_info_v1(client.media_pk_from_code(shortcode))
+    owner = media.user.username if media.user else ""
+    views = media.play_count or media.view_count
+    return Post(
+        platform="instagram",
+        url=f"https://www.instagram.com/p/{media.code or shortcode}/",
+        source=f"https://www.instagram.com/{owner}/" if owner else None,
+        posted_at=media.taken_at.isoformat() if media.taken_at else None,
+        description=(media.caption_text or "").strip(),
+        views=int(views) if views else None,
+        likes=media.like_count,
+        comments=media.comment_count,
+    )
 
 
 def _instagram_post_app(instaloader, loader, shortcode: str) -> Post:
@@ -118,10 +145,22 @@ def _instagram_post(url: str) -> Post | None:
         return None
     from .instagram import _views
 
-    instaloader, loader = _instagram_client()
+    from .instagram import app_client
+
     wait = INSTAGRAM_PAUSE - (time.monotonic() - _last_instagram_request)
     if wait > 0:
         time.sleep(wait)
+
+    client = app_client()
+    if client is not None:
+        try:
+            return _instagram_post_via_app(client, match.group(1))
+        except Exception as error:
+            raise RuntimeError(_explain_instagram_error(error)) from error
+        finally:
+            _last_instagram_request = time.monotonic()
+
+    instaloader, loader = _instagram_client()
     try:
         if loader.context.is_logged_in:
             # После входа берём пост тем же способом, что и приложение
