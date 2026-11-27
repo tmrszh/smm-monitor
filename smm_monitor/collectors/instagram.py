@@ -97,9 +97,38 @@ def _app_client(settings: dict | None = None):
     """Клиент, который ходит в инстаграм так же, как его мобильное приложение."""
     from instagrapi import Client
 
+    from ..net import system_ca_bundle
+
     client = Client(settings=settings, delay_range=[1, 3], timezone_offset=5 * 3600)
     client.logger.disabled = True
+    # В рабочей сети трафик идёт через шлюз со своим сертификатом. Python его
+    # берёт из хранилища Windows, а curl внутри instagrapi — нет, поэтому
+    # отдаём ему файл со всеми сертификатами компьютера.
+    bundle = system_ca_bundle(_settings_folder())
+    client.set_tls_verify(bundle or True)
     return client
+
+
+def _is_tls_problem(error: BaseException) -> bool:
+    text = f"{type(error).__name__} {error}".lower()
+    return "ssl" in text or "certificate" in text or "tls" in text
+
+
+def _use_plain_transport(client) -> None:
+    """Запасной путь: обычные запросы Python, которые сверяются с хранилищем
+    Windows (через truststore). Нужен, если шлюз сети не пропускает curl."""
+    client.set_retry_config(private_transport="requests")
+
+
+def call_with_fallback(client, action):
+    """Выполнить запрос; при проблеме с сертификатом — повторить запасным путём."""
+    try:
+        return action()
+    except Exception as error:
+        if not _is_tls_problem(error):
+            raise
+        _use_plain_transport(client)
+        return action()
 
 
 def login(username: str, password: str, ask_code) -> str:
@@ -125,9 +154,10 @@ def login(username: str, password: str, ask_code) -> str:
     client.challenge_code_handler = lambda _user, _choice: ask_code().strip().replace(" ", "")
     try:
         try:
-            client.login(username, password)
+            call_with_fallback(client, lambda: client.login(username, password))
         except TwoFactorRequired:
-            client.login(username, password, verification_code=ask_code().strip().replace(" ", ""))
+            code = ask_code().strip().replace(" ", "")
+            call_with_fallback(client, lambda: client.login(username, password, verification_code=code))
     except (BadPassword, BadCredentials) as error:
         raise LoginProblem(
             "Неверный логин или пароль. Проверьте, что включена английская раскладка."
@@ -148,6 +178,10 @@ def login(username: str, password: str, ask_code) -> str:
     except LoginProblem:
         raise
     except Exception as error:
+        if _is_tls_problem(error):
+            from ..net import CERTIFICATE_HELP
+
+            raise LoginProblem(CERTIFICATE_HELP) from error
         raise LoginProblem(f"Инстаграм не пустил: {error}") from error
 
     data = {"engine": "app", "username": username, "settings": client.get_settings()}

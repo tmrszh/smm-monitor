@@ -98,7 +98,9 @@ def _explain_instagram_error(error: Exception) -> str:
 
 def _instagram_post_via_app(client, shortcode: str) -> Post:
     """Пост через клиент, вошедший как мобильное приложение."""
-    media = client.media_info_v1(client.media_pk_from_code(shortcode))
+    from .instagram import call_with_fallback
+
+    media = call_with_fallback(client, lambda: client.media_info_v1(client.media_pk_from_code(shortcode)))
     owner = media.user.username if media.user else ""
     views = media.play_count or media.view_count
     return Post(
