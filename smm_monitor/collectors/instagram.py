@@ -131,8 +131,73 @@ def call_with_fallback(client, action):
         return action()
 
 
+def _find(data, keys):
+    """Первое непустое значение одного из ключей где угодно в ответе."""
+    if isinstance(data, dict):
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value).strip():
+                return str(value).strip()
+        children = data.values()
+    elif isinstance(data, list):
+        children = data
+    else:
+        return ""
+    for child in children:
+        found = _find(child, keys)
+        if found:
+            return found
+    return ""
+
+
+def _flag(data, key) -> bool:
+    if isinstance(data, dict):
+        if key in data:
+            value = data[key]
+            return value is True or str(value).strip().lower() in {"1", "true", "yes"}
+        return any(_flag(child, key) for child in data.values())
+    if isinstance(data, list):
+        return any(_flag(child, key) for child in data)
+    return False
+
+
+def where_code_went(data, choice=None) -> str:
+    """Куда инстаграм отправил код, по-человечески. Пустая строка, если неизвестно."""
+    try:
+        if _find(data, ("two_factor_identifier",)) or _flag(data, "two_factor_required"):
+            if _flag(data, "totp_two_factor_on"):
+                return (
+                    "Код в приложении для кодов (Google Authenticator, Duo и т.п.),\n"
+                    "которое подключали к этому аккаунту. Обычно оно у того, кто ведёт аккаунт."
+                )
+            if _flag(data, "whatsapp_two_factor_on"):
+                phone = _find(data, ("obfuscated_phone_number", "phone_number"))
+                return f"Код отправлен в WhatsApp на номер {phone}".strip()
+            phone = _find(data, ("obfuscated_phone_number", "phone_number"))
+            return f"Код отправлен в SMS на номер {phone}".strip()
+        choice_value = str(getattr(choice, "value", choice) or "")
+        contact = _find(data, ("contact_point",))
+        email = _find(data, ("email",))
+        phone = _find(data, ("phone_number", "obfuscated_phone_number"))
+        step = _find(data, ("step_name", "form_type")).lower()
+        by_sms = choice_value == "0" or "phone" in step or "sms" in step
+        if contact:
+            if "@" in contact:
+                return f"Код отправлен на почту {contact} (проверьте и папку «Спам»)"
+            return f"Код отправлен в SMS на номер {contact}"
+        if by_sms and phone:
+            return f"Код отправлен в SMS на номер {phone}"
+        if email:
+            return f"Код отправлен на почту {email} (проверьте и папку «Спам»)"
+        if phone:
+            return f"Код отправлен в SMS на номер {phone}"
+    except Exception:
+        pass
+    return ""
+
+
 def login(username: str, password: str, ask_code) -> str:
-    """Войти и сохранить вход. ask_code() спрашивает код подтверждения.
+    """Войти и сохранить вход. ask_code(куда_ушёл_код) спрашивает код подтверждения.
 
     Вход идёт как из мобильного приложения: вход через сайт инстаграм
     программам больше не даёт («fail» без объяснений). Возвращает имя
@@ -151,12 +216,16 @@ def login(username: str, password: str, ask_code) -> str:
 
     username = username.strip().lstrip("@")
     client = _app_client()
-    client.challenge_code_handler = lambda _user, _choice: ask_code().strip().replace(" ", "")
+
+    def code_for(choice=None) -> str:
+        return ask_code(where_code_went(client.last_json, choice)).strip().replace(" ", "")
+
+    client.challenge_code_handler = lambda _user, choice: code_for(choice)
     try:
         try:
             call_with_fallback(client, lambda: client.login(username, password))
         except TwoFactorRequired:
-            code = ask_code().strip().replace(" ", "")
+            code = code_for()
             call_with_fallback(client, lambda: client.login(username, password, verification_code=code))
     except (BadPassword, BadCredentials) as error:
         raise LoginProblem(

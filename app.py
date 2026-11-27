@@ -197,11 +197,18 @@ def run_login() -> None:
         return
     print()
     print("Вхожу...")
+
+    def ask_code(where: str) -> str:
+        print()
+        print(where or "Инстаграм прислал код (в SMS, на почту или в приложении).")
+        print("Код приходит не сразу, подождите минуту-две. Окно не закрывайте.")
+        return input("Введите код: ")
+
     try:
         owner = instagram.login(
             username,
             password,
-            ask_code=lambda: input("Инстаграм прислал код (в SMS, на почту или в приложении), введите его: "),
+            ask_code=ask_code,
         )
     except instagram.LoginProblem as error:
         print()
